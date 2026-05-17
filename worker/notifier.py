@@ -1,6 +1,6 @@
 import logging
+from typing import Optional
 
-from aiogram import Bot
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,13 +10,14 @@ logger = logging.getLogger(__name__)
 
 
 async def send_price_alert(
-    bot: Bot,
+    bot: Optional[object],
     db: AsyncSession,
     tracking: Tracking,
     product: Product,
     new_price: int,
 ) -> None:
-    """Send price reached notification via Telegram bot."""
+    if bot is None:
+        return
     user_result = await db.execute(
         select(User).where(User.telegram_user_id == tracking.user_id)
     )
@@ -58,13 +59,14 @@ async def send_price_alert(
 
 
 async def send_stock_alert(
-    bot: Bot,
+    bot: Optional[object],
     db: AsyncSession,
     tracking: Tracking,
     product: Product,
     in_stock: bool,
 ) -> None:
-    """Send stock status change notification."""
+    if bot is None:
+        return
     user_result = await db.execute(
         select(User).where(User.telegram_user_id == tracking.user_id)
     )

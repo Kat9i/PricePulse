@@ -1,7 +1,6 @@
 import asyncio
 import logging
 
-from aiogram import Bot
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from core.config import settings
@@ -14,8 +13,23 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _create_bot():
+    """Возвращает Bot или None если токен не настроен."""
+    try:
+        from aiogram import Bot
+        from aiogram.utils.token import TokenValidationError
+        bot = Bot(token=settings.bot_token)
+        return bot
+    except Exception as exc:
+        logger.warning("Telegram bot недоступен (BOT_TOKEN не настроен): %s", exc)
+        return None
+
+
 async def main() -> None:
-    bot = Bot(token=settings.bot_token)
+    bot = _create_bot()
+    if bot is None:
+        logger.warning("Worker запущен без Telegram-бота — уведомления отключены.")
+
     scheduler = AsyncIOScheduler()
 
     scheduler.add_job(
@@ -30,7 +44,6 @@ async def main() -> None:
     scheduler.start()
     logger.info("Worker started. Price checks scheduled every 2 hours.")
 
-    # Run once immediately on start
     logger.info("Running initial price check...")
     try:
         await check_all_products(bot)
@@ -41,7 +54,8 @@ async def main() -> None:
         await asyncio.Event().wait()
     finally:
         scheduler.shutdown()
-        await bot.session.close()
+        if bot:
+            await bot.session.close()
 
 
 if __name__ == "__main__":
