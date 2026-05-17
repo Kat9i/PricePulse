@@ -1,0 +1,23 @@
+IDEA.md
+MARKET_RESEARCH.md
+PRODUCT_DEFINITION.md
+AI_CODING_BRIEF.md
+ARCHITECTURE.md
+
+# Секреты
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Docker
+postgres_data/
