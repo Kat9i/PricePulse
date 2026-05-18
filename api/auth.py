@@ -6,7 +6,7 @@ from urllib.parse import parse_qsl, unquote
 from datetime import datetime, timedelta, timezone
 
 from jose import JWTError, jwt
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -14,6 +14,7 @@ from core.config import settings
 from db.session import get_db
 from db.models import User
 from api.schemas.user import AuthVerifyRequest, AuthVerifyResponse, UserResponse
+from api.limiter import limiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -72,7 +73,8 @@ def decode_jwt(token: str) -> int:
 
 
 @router.post("/verify", response_model=AuthVerifyResponse)
-async def verify(body: AuthVerifyRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute")
+async def verify(request: Request, body: AuthVerifyRequest, db: AsyncSession = Depends(get_db)):
     """Верифицирует Telegram initData, создаёт пользователя при первом входе, возвращает JWT."""
     user_data = _verify_init_data(body.init_data)
     telegram_user_id = int(user_data["id"])

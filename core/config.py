@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # Прокси (строка через запятую → список при использовании)
     proxy_list: str = ""
 
+    # CORS — через запятую, например: https://web.telegram.org,http://localhost:5173
+    allowed_origins: str = "http://localhost:5173"
+
     # Playwright
     playwright_headless: bool = True
 

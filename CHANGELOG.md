@@ -19,6 +19,24 @@
 
 ---
 
+## [0.4.0] - 2026-05-18 — Security hardening
+
+### Security
+- `api/main.py` — CORS: заменён `allow_origins=["*"]` на `settings.allowed_origins` из `.env`; `allow_credentials=False` (JWT Bearer не требует cookies); методы и заголовки сужены до необходимых
+- `api/limiter.py` — добавлен `slowapi` rate limiter; `POST /auth/verify` ограничен 10 req/min, `GET /trackings/lookup` — 20 req/min
+- `api/routers/webhooks.py` — верификация подписи ЮКасса: HMAC-SHA256(`YUKASSA_SECRET_KEY`, body) с `hmac.compare_digest` на `/webhooks/yukassa`
+- `api/schemas/tracking.py` — Field-ограничения: `url` max 2048, `sku` max 50, `target_price` 1–100 000 000, `target_percent` 0–99
+- `api/schemas/user.py` — `UserUpdate.region` max 100 символов
+
+### Added
+- `api/limiter.py` — общий экземпляр `Limiter` для импорта в роутеры
+- `SECURITY.md` — отчёт аудита безопасности: методология, находки, исправления, чеклист для продакшена
+- `requirements.txt` — добавлен `slowapi==0.1.9`
+- `core/config.py` — добавлена настройка `allowed_origins`
+- `.env.example` — добавлена переменная `ALLOWED_ORIGINS`
+
+---
+
 ## [0.3.0] - 2026-05-18 — Frontend + API integration
 
 ### Added (Backend: новые эндпоинты)

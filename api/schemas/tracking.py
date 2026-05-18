@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class SellerInfo(BaseModel):
@@ -58,11 +58,11 @@ class TrackingResponse(BaseModel):
 
 
 class TrackingCreate(BaseModel):
-    url: Optional[str] = None
-    sku: Optional[str] = None
-    platform: str                        # 'wb' | 'ozon'
-    target_price: Optional[int] = None   # в копейках
-    target_percent: Optional[float] = None
+    url: Optional[str] = Field(default=None, max_length=2048)
+    sku: Optional[str] = Field(default=None, max_length=50)
+    platform: str = Field(max_length=10)
+    target_price: Optional[int] = Field(default=None, ge=1, le=100_000_000)
+    target_percent: Optional[float] = Field(default=None, gt=0, le=99)
 
     @model_validator(mode="after")
     def check_fields(self) -> "TrackingCreate":
@@ -78,8 +78,8 @@ class TrackingCreate(BaseModel):
 
 
 class TrackingUpdate(BaseModel):
-    target_price: Optional[int] = None
-    target_percent: Optional[float] = None
+    target_price: Optional[int] = Field(default=None, ge=1, le=100_000_000)
+    target_percent: Optional[float] = Field(default=None, gt=0, le=99)
 
 
 class ProductLookupResponse(BaseModel):

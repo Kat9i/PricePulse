@@ -1,7 +1,7 @@
 import re
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -13,6 +13,7 @@ from api.dependencies import get_current_user
 from api.schemas.tracking import (
     TrackingResponse, TrackingCreate, TrackingUpdate, ProductLookupResponse,
 )
+from api.limiter import limiter
 from parsers.wb import WildberriesParser
 from parsers.ozon import OzonParser
 
@@ -20,7 +21,9 @@ router = APIRouter(prefix="/trackings", tags=["trackings"])
 
 
 @router.get("/lookup", response_model=ProductLookupResponse)
+@limiter.limit("20/minute")
 async def lookup_product(
+    request: Request,
     url: str,
     current_user: User = Depends(get_current_user),
 ) -> dict:

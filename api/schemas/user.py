@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class UserResponse(BaseModel):
@@ -15,7 +15,7 @@ class UserResponse(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    region: Optional[str] = None
+    region: Optional[str] = Field(default=None, max_length=100)
     auto_renew: Optional[bool] = None
 
 

@@ -1,12 +1,14 @@
+import hashlib
+import hmac
 import logging
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import Depends
 
+from core.config import settings
 from db.session import get_db
 from db.models import User, Payment
 
@@ -35,7 +37,21 @@ async def yukassa_webhook(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Обрабатывает уведомления от ЮКасса об оплате и автопродлении."""
-    body = await request.json()
+    raw_body = await request.body()
+
+    # Верифицируем подпись ЮКасса: HMAC-SHA256(secret_key, body)
+    if settings.yukassa_secret_key:
+        signature = request.headers.get("X-Yukassa-Signature", "")
+        expected = hmac.new(
+            key=settings.yukassa_secret_key.encode(),
+            msg=raw_body,
+            digestmod=hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(expected, signature):
+            raise HTTPException(status_code=401, detail="Неверная подпись вебхука")
+
+    import json
+    body = json.loads(raw_body)
     logger.info(f"ЮКасса webhook: {body}")
 
     event_type = body.get("event")
