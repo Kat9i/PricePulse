@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.auth import router as auth_router
 from api.routers.users import router as users_router
 from api.routers.trackings import router as trackings_router
+from api.routers.payments import router as payments_router
 from api.routers.webhooks import router as webhooks_router
 
 app = FastAPI(
@@ -23,6 +24,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(trackings_router)
+app.include_router(payments_router)
 app.include_router(webhooks_router)
 
 

@@ -4,14 +4,25 @@ from uuid import UUID
 from pydantic import BaseModel, model_validator
 
 
+class SellerInfo(BaseModel):
+    id: UUID
+    seller_name: str
+    price: int
+    offer_url: str
+
+    model_config = {"from_attributes": True}
+
+
 class ProductInfo(BaseModel):
     id: UUID
+    sku: str
     title: str
     image_url: Optional[str]
     platform: str
     url: str
     current_min_price: Optional[int]
     in_stock: bool
+    last_checked_at: Optional[datetime]
 
     model_config = {"from_attributes": True}
 
@@ -23,15 +34,34 @@ class TrackingResponse(BaseModel):
     target_percent: Optional[float]
     status: str
     created_at: datetime
+    sellers: list[SellerInfo] = []
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_sellers(cls, data):
+        if isinstance(data, dict):
+            return data
+        sellers: list = []
+        if hasattr(data, "product") and data.product and hasattr(data.product, "sellers"):
+            sellers = data.product.sellers or []
+        return {
+            "id": data.id,
+            "product": data.product,
+            "target_price": data.target_price,
+            "target_percent": float(data.target_percent) if data.target_percent is not None else None,
+            "status": data.status,
+            "created_at": data.created_at,
+            "sellers": sellers,
+        }
 
 
 class TrackingCreate(BaseModel):
     url: Optional[str] = None
     sku: Optional[str] = None
-    platform: str                       # 'wb' | 'ozon'
-    target_price: Optional[int] = None  # в копейках
+    platform: str                        # 'wb' | 'ozon'
+    target_price: Optional[int] = None   # в копейках
     target_percent: Optional[float] = None
 
     @model_validator(mode="after")
@@ -45,3 +75,13 @@ class TrackingCreate(BaseModel):
         if self.platform not in ("wb", "ozon"):
             raise ValueError("platform должен быть 'wb' или 'ozon'")
         return self
+
+
+class TrackingUpdate(BaseModel):
+    target_price: Optional[int] = None
+    target_percent: Optional[float] = None
+
+
+class ProductLookupResponse(BaseModel):
+    product: ProductInfo
+    sellers: list[SellerInfo] = []

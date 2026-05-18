@@ -19,6 +19,40 @@
 
 ---
 
+## [0.3.0] - 2026-05-18 — Frontend + API integration
+
+### Added (Backend: новые эндпоинты)
+- `GET /trackings/lookup?url=` — предпросмотр товара по URL перед добавлением: вызывает парсер WB/Ozon, возвращает `{product, sellers}` без сохранения в БД
+- `PATCH /trackings/{id}` — обновление целевой цены/процента снижения для существующего отслеживания
+- `POST /payments/invoice` — создание ссылки на оплату PRO через Telegram Payments + ЮКасса (`createInvoiceLink`)
+- `api/routers/payments.py` — новый роутер для платежей
+- `core/config.py` → `payment_provider_token` — Telegram Payments provider token от ЮКасса
+
+### Changed (Backend: доработка схем)
+- `api/schemas/tracking.py` — добавлены `SellerInfo`, `TrackingUpdate`, `ProductLookupResponse`; `ProductInfo` теперь включает `sku` и `last_checked_at`; `TrackingResponse` включает `sellers` (через `model_validator`)
+- `api/routers/trackings.py` — все запросы с отслеживаниями теперь загружают `product.sellers` через `selectinload`; добавлена функция `_detect_platform` для определения платформы по URL
+- `api/main.py` — зарегистрирован `payments_router`
+- `.env.example` — добавлена переменная `PAYMENT_PROVIDER_TOKEN`
+
+### Added (Frontend: инфраструктура)
+- `Dockerfile.frontend` — образ `node:20-alpine` для запуска Vite dev server в Docker
+- `docker-compose.yml` → сервис `frontend` на порту `5173`, `BACKEND_URL=http://api:8000`
+- `frontend/vite.config.ts` → proxy target читает `process.env.BACKEND_URL` (в Docker — имя сервиса, локально — `localhost:8000`)
+- `frontend/.env` — `VITE_API_URL=/api` (через Vite proxy, без CORS)
+- `frontend/.env.example` — пустые значения по правилам безопасности
+
+### Changed (Frontend: API-интеграция по всем экранам)
+- `frontend/src/lib/api.ts` — исправлен баг `access_token` → `token`; добавлена функция `bootstrapAuth()` возвращающая `{user, is_new}`; `platform` стал обязательным в `addTracking`; добавлен `createInvoice()`; ID-типы `string` вместо `number`
+- `frontend/src/types.ts` — все `id` полей типа UUID исправлены с `number` на `string`; `Product.image_url` допускает `null`; `Tracking.sellers` обязательный (не `?`)
+- `frontend/src/lib/mock.ts` — ID исправлены на UUID-строки для соответствия бэкенду
+- `frontend/src/App.tsx` — использует `bootstrapAuth()` для детектирования нового пользователя (`is_new`) и автоматического перехода на онбординг; добавлен `ErrorScreen` с кнопкой "Попробовать снова"; добавлен `onTrackingUpdated` проп в `HomePage`
+- `frontend/src/pages/HomePage.tsx` — добавлен `onTrackingUpdated` проп; `onTrackingDeleted` принимает `string` ID; `ProductDetailSheet` получает `onUpdated`
+- `frontend/src/pages/sheets/ProductDetailSheet.tsx` — добавлен `onUpdated(t: Tracking)` проп; после успешного изменения цели вызывает `onUpdated` с обновлённым треккингом; `onDeleted` принимает `string` ID
+- `frontend/src/pages/sheets/SetTargetSheet.tsx` — передаёт `platform` в `api.addTracking()`
+- `frontend/src/pages/ProPage.tsx` — реальная интеграция Telegram Payments: вызывает `api.createInvoice()`, затем `Telegram.WebApp.openInvoice(url, callback)`; показывает ошибку оплаты; обновляет user через `onUserUpdate` после успешной оплаты; добавлен `onUserUpdate` проп
+
+---
+
 ## [0.2.0] - 2026-05-17 — Backend MVP ✓ tested
 
 ### Added (Backend: окружение и инфраструктура)

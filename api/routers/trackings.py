@@ -1,5 +1,5 @@
 import re
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, func
@@ -10,9 +10,60 @@ from core.config import settings
 from db.session import get_db
 from db.models import User, Product, Tracking
 from api.dependencies import get_current_user
-from api.schemas.tracking import TrackingResponse, TrackingCreate
+from api.schemas.tracking import (
+    TrackingResponse, TrackingCreate, TrackingUpdate, ProductLookupResponse,
+)
+from parsers.wb import WildberriesParser
+from parsers.ozon import OzonParser
 
 router = APIRouter(prefix="/trackings", tags=["trackings"])
+
+
+@router.get("/lookup", response_model=ProductLookupResponse)
+async def lookup_product(
+    url: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Предпросмотр товара по URL — вызывает парсер и возвращает данные без сохранения."""
+    platform = _detect_platform(url)
+    if not platform:
+        raise HTTPException(status_code=422, detail="Поддерживаем только ссылки WB и Ozon")
+
+    sku = _extract_sku(url, platform)
+    if not sku:
+        raise HTTPException(status_code=422, detail="Не удалось определить артикул из ссылки")
+
+    parser: WildberriesParser | OzonParser = (
+        WildberriesParser() if platform == "wb" else OzonParser()
+    )
+    result = await parser.parse(sku)
+    if not result:
+        raise HTTPException(status_code=404, detail="Товар не найден. Проверь ссылку.")
+
+    sellers = [
+        {
+            "id": str(uuid4()),
+            "seller_name": s.seller_name,
+            "price": s.price,
+            "offer_url": s.offer_url,
+        }
+        for s in result.sellers
+    ]
+
+    return {
+        "product": {
+            "id": str(uuid4()),
+            "sku": result.sku,
+            "title": result.title,
+            "image_url": result.image_url,
+            "platform": result.platform,
+            "url": result.url,
+            "current_min_price": result.min_price,
+            "in_stock": result.in_stock,
+            "last_checked_at": None,
+        },
+        "sellers": sellers,
+    }
 
 
 @router.get("", response_model=list[TrackingResponse])
@@ -20,11 +71,11 @@ async def list_trackings(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list:
-    """Возвращает список всех отслеживаний пользователя с данными товара."""
+    """Возвращает список всех отслеживаний пользователя с данными товара и продавцами."""
     result = await db.execute(
         select(Tracking)
         .where(Tracking.user_id == current_user.telegram_user_id)
-        .options(selectinload(Tracking.product))
+        .options(selectinload(Tracking.product).selectinload(Product.sellers))
         .order_by(Tracking.created_at.desc())
     )
     return result.scalars().all()
@@ -37,7 +88,6 @@ async def add_tracking(
     db: AsyncSession = Depends(get_db),
 ) -> Tracking:
     """Добавляет товар в список отслеживания. Проверяет лимит тарифа."""
-    # Проверяем лимит активных отслеживаний
     count_result = await db.execute(
         select(func.count()).select_from(Tracking).where(
             Tracking.user_id == current_user.telegram_user_id,
@@ -52,14 +102,12 @@ async def add_tracking(
             detail=f"Достигнут лимит отслеживаний для тарифа ({limit} товаров)",
         )
 
-    # Определяем SKU из URL если он не передан напрямую
     sku = body.sku
     if not sku and body.url:
         sku = _extract_sku(body.url, body.platform)
     if not sku:
         raise HTTPException(status_code=422, detail="Не удалось определить артикул товара из URL")
 
-    # Ищем существующий товар или создаём новый
     product_result = await db.execute(
         select(Product).where(Product.sku == sku, Product.platform == body.platform)
     )
@@ -68,14 +116,12 @@ async def add_tracking(
         product = Product(
             sku=sku,
             platform=body.platform,
-            # Заголовок будет обновлён воркером при первой проверке цены
             title=f"Товар {sku}",
             url=body.url or _build_url(sku, body.platform),
         )
         db.add(product)
         await db.flush()
 
-    # Проверяем, что такое отслеживание ещё не существует
     existing_result = await db.execute(
         select(Tracking).where(
             Tracking.user_id == current_user.telegram_user_id,
@@ -95,13 +141,50 @@ async def add_tracking(
     await db.commit()
     await db.refresh(tracking)
 
-    # Загружаем связанный product для ответа
     result = await db.execute(
         select(Tracking)
         .where(Tracking.id == tracking.id)
-        .options(selectinload(Tracking.product))
+        .options(selectinload(Tracking.product).selectinload(Product.sellers))
     )
     return result.scalar_one()
+
+
+@router.patch("/{tracking_id}", response_model=TrackingResponse)
+async def update_tracking(
+    tracking_id: UUID,
+    body: TrackingUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Tracking:
+    """Обновляет целевую цену или процент снижения."""
+    if body.target_price is None and body.target_percent is None:
+        raise HTTPException(status_code=422, detail="Укажи target_price или target_percent")
+
+    result = await db.execute(
+        select(Tracking).where(
+            Tracking.id == tracking_id,
+            Tracking.user_id == current_user.telegram_user_id,
+        )
+    )
+    tracking = result.scalar_one_or_none()
+    if not tracking:
+        raise HTTPException(status_code=404, detail="Отслеживание не найдено")
+
+    if body.target_price is not None:
+        tracking.target_price = body.target_price
+        tracking.target_percent = None
+    else:
+        tracking.target_percent = body.target_percent
+        tracking.target_price = None
+
+    await db.commit()
+
+    refreshed = await db.execute(
+        select(Tracking)
+        .where(Tracking.id == tracking_id)
+        .options(selectinload(Tracking.product).selectinload(Product.sellers))
+    )
+    return refreshed.scalar_one()
 
 
 @router.delete("/{tracking_id}")
@@ -125,23 +208,27 @@ async def delete_tracking(
     return {"ok": True}
 
 
+def _detect_platform(url: str) -> str | None:
+    if "wildberries.ru" in url:
+        return "wb"
+    if "ozon.ru" in url:
+        return "ozon"
+    return None
+
+
 def _extract_sku(url: str, platform: str) -> str | None:
-    """Извлекает артикул товара из URL маркетплейса."""
     if platform == "wb":
-        # https://www.wildberries.ru/catalog/12345678/detail.aspx
         match = re.search(r"/catalog/(\d+)/", url)
         return match.group(1) if match else None
-    elif platform == "ozon":
-        # https://www.ozon.ru/product/nazvanie-12345678/
+    if platform == "ozon":
         match = re.search(r"-(\d+)/?$", url.rstrip("/"))
         return match.group(1) if match else None
     return None
 
 
 def _build_url(sku: str, platform: str) -> str:
-    """Формирует канонический URL товара по артикулу и платформе."""
     if platform == "wb":
         return f"https://www.wildberries.ru/catalog/{sku}/detail.aspx"
-    elif platform == "ozon":
+    if platform == "ozon":
         return f"https://www.ozon.ru/product/{sku}/"
     return ""
